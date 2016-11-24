@@ -3,13 +3,13 @@
 
 #include "general.hpp"
 #include <functional>
+#include "master.hpp"
 
 namespace forkp {
 
 using InitFunc = std::function<bool()>;
-extern bool user_init_register(const InitFunc& func);
 
-extern bool forkp_init();
+extern char *exec_name;
 
 }
 

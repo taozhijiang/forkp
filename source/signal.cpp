@@ -35,7 +35,8 @@ namespace forkp {
     };
 
     static std::vector<signal_t> signal_list {
-        {SIGUSR1, "USR1: Print Msg", signalHander},
+        {SIGUSR1, "USR1: print info", signalHander},
+        {SIGCHLD, "SIGCHLD: restart process", signalHander},
         {SIGPIPE, "PIPE: SIG_IGN", SIG_IGN},
     };
 
