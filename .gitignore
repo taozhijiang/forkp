@@ -1,0 +1,9 @@
+Debug/
+Release/
+obj/
+forkp.vpj
+forkp.vpw
+forkp.vpwhist
+forkp.vpwhistu
+forkp.vtg
+.DS_Store
