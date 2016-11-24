@@ -1,4 +1,5 @@
 #include "general.hpp"
+#include "forkp.hpp"
 
 #include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
@@ -18,12 +19,13 @@
 #include <execinfo.h>
 #include <signal.h>
 
+#include <vector>
+
 namespace forkp {
 
     static void boost_log_init(const string prefix);
-    static void backtrace_init();
-    static bool signal_init();
-
+    extern void backtrace_init();
+    extern void signal_init();
     static bool user_init();
 
 
@@ -33,67 +35,31 @@ namespace forkp {
 
         boost_log_init("forkpRun");
         backtrace_init();
+        signal_init();
 
-        BOOST_LOG_T(info) << "forkp init ok!";
+        if (!user_init())
+            return false;
+
+        BOOST_LOG_T(info) << "Forkp System Init OK!";
         return true;
     }
 
-    static void backtrace_info(int sig, siginfo_t *info, void *f)
-    {
-        int j, nptrs;
-    #define BT_SIZE 100
-        char **strings;
-        void *buffer[BT_SIZE];
-
-        fprintf(stderr,       "\nSignal [%d] received.\n", sig);
-        BOOST_LOG_T(fatal) << "\nSignal [" << sig << "] received.\n";
-        fprintf(stderr,       "======== Stack trace ========");
-        BOOST_LOG_T(fatal) << "======== Stack trace ========\n";
-
-        nptrs = ::backtrace(buffer, BT_SIZE);
-        BOOST_LOG_T(fatal) << "backtrace() returned %d addresses";
-        fprintf(stderr,       "backtrace() returned %d addresses\n", nptrs);
-
-        strings = ::backtrace_symbols(buffer, nptrs);
-        if (strings == NULL)
-        {
-            perror("backtrace_symbols");
-            BOOST_LOG_T(fatal) << "backtrace_symbols";
-            exit(EXIT_FAILURE);
-        }
-
-        for (j = 0; j < nptrs; j++)
-        {
-            fprintf(stderr, "%s\n", strings[j]);
-            BOOST_LOG_T(fatal) << strings[j];
-        }
-
-        free(strings);
-
-        fprintf(stderr,       "Stack Done!\n");
-        BOOST_LOG_T(fatal) << "Stack Done!";
-
-        ::kill(getpid(), sig);
-        ::abort();
-
-    #undef BT_SIZE
+    /* user specified init*/
+    std::vector<InitFunc> init_list;  // set not supportted
+    extern bool user_init_register(const InitFunc& func){
+        init_list.emplace_back(func);
+        return true;
     }
 
-    static void backtrace_init() {
+    static bool user_init() {
+        for (const auto& it: init_list){
+            if (!it())
+                return false;
+        }
 
-        struct sigaction act;
-
-        sigemptyset(&act.sa_mask);
-        act.sa_flags     = SA_NODEFER | SA_ONSTACK | SA_RESETHAND | SA_SIGINFO;
-        act.sa_sigaction = backtrace_info;
-        sigaction(SIGABRT, &act, NULL);
-        sigaction(SIGBUS,  &act, NULL);
-        sigaction(SIGFPE,  &act, NULL);
-        sigaction(SIGSEGV, &act, NULL);
-
-        return;
+        BOOST_LOG_T(info) << "User Init OK!";
+        return true;
     }
-
 
 
 namespace blog_sink = boost::log::sinks;
