@@ -2,12 +2,11 @@
 #define _FORKP_HPP_
 
 #include "general.hpp"
-#include <functional>
 #include "master.hpp"
 
 namespace forkp {
 
-using InitFunc = std::function<bool()>;
+typedef function<bool()> InitFunc;
 
 extern char **exec_main_argv;
 

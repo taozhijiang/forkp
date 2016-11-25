@@ -77,9 +77,10 @@ namespace forkp {
     };
 
     extern void signal_init() {
-        for (const auto& cit : signal_list) {
-            BOOST_LOG_T(debug) << "Signal Hook for " << cit.desc;
-            ::signal(cit.signo, cit.handler);
+        std::vector<signal_t>::const_iterator cit;
+        for (cit = signal_list.cbegin(); cit != signal_list.cend(); ++cit) {
+            BOOST_LOG_T(debug) << "Signal Hook for " << cit->desc;
+            ::signal(cit->signo, cit->handler);
         }
 
         BOOST_LOG_T(info) << "Signal Init OK!";

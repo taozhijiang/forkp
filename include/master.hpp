@@ -24,8 +24,8 @@ extern void signal_init();
 extern void boost_log_init(const string& prefix);
 extern void backtrace_init();
 
-using InitFunc = std::function<bool()>;
-using taskFunc = std::function<void()>;
+typedef function<bool()> InitFunc;
+typedef function<void()> taskFunc;
 
 extern bool st_rename_process(const char* name);
 
@@ -40,9 +40,10 @@ typedef struct {
 
     Worker_Ptr   worker;
 } WorkerStat_t;
-using WorkerStat_Ptr = std::shared_ptr<WorkerStat_t>;
 
-class Master final{
+typedef shared_ptr<WorkerStat_t> WorkerStat_Ptr;
+
+class Master{
 
 public:
     static Master& getInstance() {
@@ -59,7 +60,7 @@ public:
 
     WorkerStat_Ptr getWorkStatObj(pid_t pid) {
         if (workers_.find(pid) == workers_.end())
-            return nullptr;
+            return WorkerStat_Ptr();
 
         return workers_[pid];
     }
@@ -71,13 +72,13 @@ public:
     }
 
     bool spawnWorkers(const char* name, const char* exec, char *const *argv) {
-        Worker_Ptr node = std::make_shared<Worker>(name, exec, argv);
-        WorkerStat_Ptr workstat = std::make_shared<WorkerStat_t>();
+        Worker_Ptr node = make_shared<Worker>(name, exec, argv);
+        WorkerStat_Ptr workstat = make_shared<WorkerStat_t>();
         if (!node || !workstat)
             return false;
 
         // 首次启动参数
-        workstat->start_tm = time(NULL);
+        workstat->start_tm = ::time(NULL);
         workstat->restart_cnt = 0;
         workstat->restart_err_cnt = 0;
         workstat->worker = node;
@@ -87,13 +88,13 @@ public:
 
     // 用户空间启动进程
     bool spawnWorkers(const char* name, const taskFunc& func){
-        Worker_Ptr node = std::make_shared<Worker>(name, func);
-        WorkerStat_Ptr workstat = std::make_shared<WorkerStat_t>();
+        Worker_Ptr node = make_shared<Worker>(name, func);
+        WorkerStat_Ptr workstat = make_shared<WorkerStat_t>();
         if (!node || !workstat)
             return false;
 
         // 首次启动参数
-        workstat->start_tm = time(NULL);
+        workstat->start_tm = ::time(NULL);
         workstat->restart_cnt = 0;
         workstat->restart_err_cnt = 0;
         workstat->worker = node;
@@ -141,8 +142,9 @@ public:
     ~Master() = default;
 
     bool userInitProc() {
-        for (const auto& it: init_list_){
-            if (!it())
+        std::vector<InitFunc>::const_iterator it;
+        for (it = init_list_.cbegin(); it != init_list_.cend(); ++it){
+            if (!(*it)())
                 return false;
         }
 
@@ -155,20 +157,22 @@ public:
         std::cerr << "active workers:" << std::endl;
         if (workers_.empty())
             std::cerr << "None" << std::endl;
-        for (const auto &item: workers_) {
+        std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
+        for (m_it = workers_.cbegin(); m_it != workers_.cend(); ++m_it) {
             std::cerr << boost::format("[%c]proc:%s, pid:%d, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
-            % (item.second->worker->type_ == WorkerType::WorkerProcess ? 'P':'E') %
-                item.second->worker->proc_title_ % item.second->this_pid % item.second->start_tm %
-                item.second->this_start_tm % item.second->restart_cnt << std::endl;
+            % (m_it->second->worker->type_ == WorkerType::WorkerProcess ? 'P':'E') %
+                m_it->second->worker->proc_title_ % m_it->second->this_pid % m_it->second->start_tm %
+                m_it->second->this_start_tm % m_it->second->restart_cnt << std::endl;
         }
         std::cerr << "dead workers:" << std::endl;
         if (dead_workers_.empty())
             std::cerr << "None" << std::endl;
-        for (const auto &item: dead_workers_) {
+        std::set<WorkerStat_Ptr>::const_iterator s_it;
+        for (s_it = dead_workers_.cbegin(); s_it != dead_workers_.cend(); ++s_it) {
             std::cerr << boost::format("[%c]proc:%s, pid:%d, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
-            % (item->worker->type_ == WorkerType::WorkerProcess ? 'P':'E') %
-                item->worker->proc_title_ % item->this_pid % item->start_tm %
-                item->this_start_tm % item->restart_cnt << std::endl;
+            % ((*s_it)->worker->type_ == WorkerType::WorkerProcess ? 'P':'E') %
+                (*s_it)->worker->proc_title_ % (*s_it)->this_pid % (*s_it)->start_tm %
+                (*s_it)->this_start_tm % (*s_it)->restart_cnt << std::endl;
         }
     }
 
@@ -216,7 +220,7 @@ private:
         }
 
         workstat->this_pid = pid;
-        workstat->this_start_tm = time(NULL);
+        workstat->this_start_tm = ::time(NULL);
 
         // parent process continue
         return pid;
@@ -229,7 +233,9 @@ private:
         master_instance_ = &master;
     }
 
-    Master(): workers_(), dead_workers_(), init_list_()
+    Master():
+        name_("forkp master"),
+        workers_(), dead_workers_(), init_list_()
     {}
 
     bool Init() {
@@ -245,7 +251,7 @@ private:
     static Master* master_instance_;
 
 private:
-    const char* name_ = "forkp master";
+    const char* name_;
     std::map<pid_t, WorkerStat_Ptr> workers_;
     std::set<WorkerStat_Ptr>        dead_workers_;  //没有启动成功的任务
     std::vector<InitFunc> init_list_;  // container set not supportted

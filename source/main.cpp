@@ -12,15 +12,18 @@ void taskFu(int id) {
     }
 }
 
+bool init_func() {
+    std::cout << "User Init Func Called!" << std::endl;
+    return true;
+}
+
 
 int main(int argc, char* argv[])
 {
     // for change process name
     forkp::exec_main_argv = argv;
 
-    MasterIntance.user_init_register( []() -> bool {
-                            std::cout << "User Init Func Called!" << std::endl;
-                            return true; });
+    MasterIntance.user_init_register(init_func);
 
     MasterIntance.userInitProc();
 

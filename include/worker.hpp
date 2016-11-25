@@ -4,6 +4,7 @@
 #include "general.hpp"
 #include <sys/types.h>
 #include <unistd.h>
+#include <cassert>
 
 namespace forkp {
 
@@ -13,7 +14,7 @@ typedef struct {
 } Notify;
 
 class Master;
-using taskFunc = std::function<void()>;
+typedef function<void()> taskFunc;
 
 extern bool st_rename_process(const char* name);
 
@@ -103,7 +104,7 @@ private:
     Notify notify_;
 };
 
-using Worker_Ptr = std::shared_ptr<Worker>;
+typedef shared_ptr<Worker> Worker_Ptr;
 
 }
 

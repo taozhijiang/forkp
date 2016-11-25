@@ -5,6 +5,7 @@
 using std::cout;
 using std::cerr;
 using std::endl;
+#include <cstring>
 #include <string>
 using std::string;
 
@@ -12,9 +13,30 @@ using std::string;
 using std::int64_t;
 using std::uint64_t;
 
+// C++0x
+#if __cplusplus <= 199711L
+#define nullptr 0
+#include <boost/log/trivial.hpp>
+
+#include <boost/function.hpp>
+using boost::function;
+
+#include <boost/shared_ptr.hpp>
+#include <boost/make_shared.hpp>
+using boost::shared_ptr;
+using boost::make_shared;
+
+#else
+
 #include <memory>
 
-#include <boost/log/trivial.hpp>
+using std::function;
+
+using std::shared_ptr;
+using std::make_shared;
+
+#endif
+
 
 namespace forkp {
 
