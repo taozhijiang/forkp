@@ -27,12 +27,12 @@ int main(int argc, char* argv[])
 
     MasterIntance.userInitProc();
 
-    MasterIntance.spawnWorkers("test proc", std::bind(taskFu, 2));
-    MasterIntance.spawnWorkers("test proc", std::bind(taskFu, 8));
+    MasterIntance.spawnWorkers("test_proc", std::bind(taskFu, 2));
+    MasterIntance.spawnWorkers("test_proc", std::bind(taskFu, 8));
 
-    char *args[] = {"forkp worker exec_test", (char *) 0 };
-    MasterIntance.spawnWorkers("execTest", "/home/taozj/forkp",
-    							"/home/taozj/forkp/test/exec_test", args);
+    char *args[] = {"forkp_worker_exec_test", (char *) 0 };
+    MasterIntance.spawnWorkers("execTest", "/home/user/MacOS/BitBucket/forkp/",
+    							"/home/user/MacOS/BitBucket/forkp/test/exec_test", args);
 
 
     MasterIntance.masterLoop();

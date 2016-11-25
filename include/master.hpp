@@ -3,6 +3,7 @@
 
 #include "general.hpp"
 #include "worker.hpp"
+#include "epoll.hpp"
 
 #include <map>
 #include <set>
@@ -10,6 +11,10 @@
 #include <unistd.h>
 
 #include <boost/format.hpp>
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 namespace forkp {
 
@@ -26,17 +31,22 @@ extern void backtrace_init();
 
 typedef function<bool()> InitFunc;
 typedef function<void()> taskFunc;
+typedef function<bool()> epollHandler;
 
 extern bool st_rename_process(const char* name);
+extern bool st_transform_to_fd(int src,  int des);
 
 typedef struct {
     pid_t        this_pid;
     time_t       this_start_tm;
-    std::size_t this_miss_cnt; // 当前启动时候错过的心跳
+    std::size_t  this_miss_cnt; // 当前启动时候错过的心跳
 
+    pid_t        start_pid;       //最初始的pid
     time_t       start_tm;
-    std::size_t restart_cnt;     // 启动成功次数
-    std::size_t restart_err_cnt; // 启动失败次数
+    std::size_t  restart_cnt;     // 启动成功次数
+    std::size_t  restart_err_cnt; // 启动失败次数
+
+    int          out_log_fd;
 
     Worker_Ptr   worker;
 } WorkerStat_t;
@@ -82,6 +92,7 @@ public:
         workstat->start_tm = ::time(NULL);
         workstat->restart_cnt = 0;
         workstat->restart_err_cnt = 0;
+        workstat->out_log_fd = -1;
         workstat->worker = node;
 
         return trySpawnWorkers(workstat);
@@ -98,6 +109,7 @@ public:
         workstat->start_tm = ::time(NULL);
         workstat->restart_cnt = 0;
         workstat->restart_err_cnt = 0;
+        workstat->out_log_fd = -1;
         workstat->worker = node;
 
         return trySpawnWorkers(workstat);
@@ -105,6 +117,7 @@ public:
 
     // 内部重启进程的接口
     bool trySpawnWorkers(WorkerStat_Ptr& workstat){
+        bool ret = false;
 
         if (!forkPrepare(workstat)) {
             BOOST_LOG_T(error) << "fork_prepare worker failed, push to dead_workers!";
@@ -115,7 +128,8 @@ public:
 
         pid_t worker_pid = spawn_workers_internel(workstat);
 
-        // parent process
+        // parent process routine
+
         if (worker_pid < 0) {
             BOOST_LOG_T(error) << "start worker failed, push to dead_workers!";
             ++ workstat->restart_err_cnt;
@@ -123,7 +137,33 @@ public:
             return false;
         }
 
-        ++ workstat->restart_cnt;
+
+        close(workstat->worker->channel_.write_);
+        workstat->worker->channel_.write_ = -1;
+
+        if (!workstat->start_pid)
+            workstat->start_pid = worker_pid;
+
+        if (workstat->out_log_fd < 0) {
+            char file[PATH_MAX];
+            snprintf(file, PATH_MAX, "./log/%s_%d.log", workstat->worker->proc_title_,
+                     workstat->start_pid);
+            workstat->out_log_fd = open(file, O_CREAT|O_WRONLY|O_APPEND, 0640);
+            if (workstat->out_log_fd < 0)
+                BOOST_LOG_T(error) << "redirect target child process stdout/stderr to " << file << " failed!";
+        }
+
+        if (workstat->out_log_fd > 0) {
+            ret = epollh_->addEvent(workstat->worker->channel_.read_,
+                                EPOLLIN | EPOLLERR,
+                                bind(st_transform_to_fd,
+                                     workstat->worker->channel_.read_,
+                                     workstat->out_log_fd));
+            if (!ret)
+                BOOST_LOG_T(error) << "register failed for " << workstat->worker->channel_.read_;
+        }
+
+        ++workstat->restart_cnt;
         assert(workers_.find(worker_pid) == workers_.end());
         workers_[worker_pid] = workstat;
 
@@ -135,7 +175,7 @@ public:
     void masterLoop() {
 
     	for( ; ; ) {
-            ::sleep(1);
+            epollh_->traverseAndHandleEvent(200);
         }
 
     }
@@ -160,9 +200,10 @@ public:
             std::cerr << "None" << std::endl;
         std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
         for (m_it = workers_.cbegin(); m_it != workers_.cend(); ++m_it) {
-            std::cerr << boost::format("[%c]proc:%s, pid:%d, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
+            std::cerr << boost::format("[%c]proc:%s, pid:%d, start_pid:%lu, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
             % (m_it->second->worker->type_ == WorkerType::WorkerProcess ? 'P':'E') %
-                m_it->second->worker->proc_title_ % m_it->second->this_pid % m_it->second->start_tm %
+                m_it->second->worker->proc_title_ % m_it->second->this_pid % m_it->second->start_pid %
+                m_it->second->start_tm %
                 m_it->second->this_start_tm % m_it->second->restart_cnt << std::endl;
         }
         std::cerr << "!!!! dead workers:" << std::endl;
@@ -170,9 +211,9 @@ public:
             std::cerr << "None" << std::endl;
         std::set<WorkerStat_Ptr>::const_iterator s_it;
         for (s_it = dead_workers_.cbegin(); s_it != dead_workers_.cend(); ++s_it) {
-            std::cerr << boost::format("[%c]proc:%s, pid:%d, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
+            std::cerr << boost::format("[%c]proc:%s, pid:%d, start_pid:%lu, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
             % ((*s_it)->worker->type_ == WorkerType::WorkerProcess ? 'P':'E') %
-                (*s_it)->worker->proc_title_ % (*s_it)->this_pid % (*s_it)->start_tm %
+                (*s_it)->worker->proc_title_ % (*s_it)->this_pid % (*s_it)->start_pid % (*s_it)->start_tm %
                 (*s_it)->this_start_tm % (*s_it)->restart_cnt << std::endl;
         }
     }
@@ -182,8 +223,10 @@ private:
         int pipefd[2];
 
         workstat->worker->workerReset();
-        if (pipe(pipefd) < 0)
-        {
+
+        // channel_，用于子进程的STDOUT STDERR的重定向
+
+        if ( pipe(pipefd) < 0 ) {
             BOOST_LOG_T(error) << "pipe() Error!";
             return false;
         }
@@ -191,9 +234,8 @@ private:
         st_make_nonblock(pipefd[0]);
         st_make_nonblock(pipefd[1]);
 
-        workstat->worker->notify_.read_ = pipefd[0];
-        workstat->worker->notify_.write_ = pipefd[1];
-
+        workstat->worker->channel_.read_ = pipefd[0];
+        workstat->worker->channel_.write_ = pipefd[1];
         workstat->this_miss_cnt = 0;
 
         return true;
@@ -215,7 +257,18 @@ private:
 
         if (pid == 0) // child process
         {
-            std::swap(workstat->worker->notify_.read_, workstat->worker->notify_.write_);
+
+            // 重定向子进程的输出、标准错误输出到channel
+            int ret = 0;
+            close(workstat->worker->channel_.read_);
+            workstat->worker->channel_.read_ = -1;
+
+            ret = ::dup2(workstat->worker->channel_.write_, STDOUT_FILENO);
+            ret += ::dup2(workstat->worker->channel_.write_, STDERR_FILENO);
+
+            if (ret < 0){
+                BOOST_LOG_T(error) << "dup2 STDOUT_FILENO STDERR_FILENO  Error!";
+            }
 
             if (workstat->worker->type_ == WorkerType::WorkerProcess) {
                 workstat->worker->startProcess();
@@ -225,10 +278,11 @@ private:
             }
         }
 
+        // parent process continue
+
         workstat->this_pid = pid;
         workstat->this_start_tm = ::time(NULL);
 
-        // parent process continue
         return pid;
     }
 
@@ -241,7 +295,8 @@ private:
 
     Master():
         name_("forkp master"),
-        workers_(), dead_workers_(), init_list_()
+        workers_(), dead_workers_(), init_list_(),
+        epollh_(make_shared<Epoll>(128))
     {}
 
     bool Init() {
@@ -261,6 +316,7 @@ private:
     std::map<pid_t, WorkerStat_Ptr> workers_;
     std::set<WorkerStat_Ptr>        dead_workers_;  //没有启动成功的任务
     std::vector<InitFunc> init_list_;  // container set not supportted
+    shared_ptr<Epoll> epollh_;
 };
 
 }

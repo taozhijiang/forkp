@@ -13,10 +13,11 @@ using std::string;
 using std::int64_t;
 using std::uint64_t;
 
+#include <boost/log/trivial.hpp>
+
 // C++0x
 #if __cplusplus <= 199711L
 #define nullptr 0
-#include <boost/log/trivial.hpp>
 
 #include <boost/function.hpp>
 using boost::function;
@@ -26,6 +27,9 @@ using boost::function;
 using boost::shared_ptr;
 using boost::make_shared;
 
+#include <boost/bind.hpp>
+using boost::bind;
+
 #else
 
 #include <memory>
@@ -34,6 +38,8 @@ using std::function;
 
 using std::shared_ptr;
 using std::make_shared;
+
+using std::bind;
 
 #endif
 

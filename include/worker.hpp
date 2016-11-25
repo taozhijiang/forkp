@@ -3,6 +3,8 @@
 
 #include "general.hpp"
 #include <sys/types.h>
+#include <sys/socket.h>
+
 #include <unistd.h>
 #include <cassert>
 
@@ -35,7 +37,7 @@ public:
         func_(func),
         pid_ ( getpid() ),
         ppid_ ( getpid() ),
-        notify_( {-1, -1} )
+        channel_( {-1, -1} )
     {
         strncpy(proc_title_, name, 16);
         proc_title_[sizeof(proc_title_)-1] = 0;
@@ -50,7 +52,7 @@ public:
         func_(taskFunc()),
         pid_ ( getpid() ),
         ppid_ ( getpid() ),
-        notify_( {-1, -1} )
+        channel_( {-1, -1} )
     {
         strncpy(proc_title_, name, 16);
         proc_title_[sizeof(proc_title_)-1] = 0;
@@ -65,13 +67,14 @@ public:
     void workerReset() {
         pid_ = ppid_ = getpid();
 
-        if (notify_.read_ != -1)
-            close(notify_.read_);
-
-        if (notify_.write_ != -1)
-            close(notify_.write_);
+        if (channel_.read_ != -1)
+            close(channel_.read_);
+        if (channel_.write_ != -1)
+            close(channel_.write_);
 
         notify_.read_ = notify_.write_ = -1;
+
+        return;
     }
 
     // 使用函数开辟进程
@@ -110,6 +113,7 @@ private:
     pid_t pid_;
     pid_t ppid_;
     Notify notify_;
+    Notify channel_;  // STDOUt/STDERR redirect
 };
 
 typedef shared_ptr<Worker> Worker_Ptr;

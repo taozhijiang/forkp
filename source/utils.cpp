@@ -19,6 +19,16 @@ namespace forkp {
 
     extern char **exec_main_argv = NULL;
 
+    bool st_transform_to_fd( int src,  int des ) {
+        char buff[512];
+        int ret = 0;
+
+        while ((ret = read(src, buff, 512)) > 0)
+            write(des, buff, ret);
+
+        return true;
+    }
+
     bool st_rename_process(const char* name) {
         if (!name &&  !strlen(name))
             return false;
