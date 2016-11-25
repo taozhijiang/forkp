@@ -18,15 +18,15 @@ int main(int argc, char* argv[])
     // for change process name
     forkp::exec_main_argv = argv;
 
-    forkp::Master master;
-    master.user_init_register( []() -> bool {
+    MasterIntance.user_init_register( []() -> bool {
                             std::cout << "User Init Func Called!" << std::endl;
                             return true; });
-    master.Init();
 
-    master.spawn_workers("test proc", std::bind(taskFu, 2));
-    master.spawn_workers("test proc", std::bind(taskFu, 8));
-    master.MasterLoop();
+    MasterIntance.userInitProc();
+
+    MasterIntance.spawnWorkers("test proc", std::bind(taskFu, 2));
+    MasterIntance.spawnWorkers("test proc", std::bind(taskFu, 8));
+    MasterIntance.masterLoop();
 
     return 0;
 }

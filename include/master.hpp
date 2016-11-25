@@ -5,8 +5,11 @@
 #include "worker.hpp"
 
 #include <map>
+#include <set>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include <boost/format.hpp>
 
 namespace forkp {
 
@@ -32,7 +35,8 @@ typedef struct {
     std::size_t this_miss_cnt; // 当前启动时候错过的心跳
 
     time_t       start_tm;
-    std::size_t restart_cnt;   // 被启动次数
+    std::size_t restart_cnt;     // 启动成功次数
+    std::size_t restart_err_cnt; // 启动失败次数
 
     Worker_Ptr   worker;
 } WorkerStat_t;
@@ -41,21 +45,11 @@ using WorkerStat_Ptr = std::shared_ptr<WorkerStat_t>;
 class Master final{
 
 public:
-    Master(): workers_(), dead_workers_(), init_list_()
-    {}
+    static Master& getInstance() {
+        if (!master_instance_)
+            createInstance();
 
-    bool Init() {
-
-    	boost_log_init("forkpRun");
-        backtrace_init();
-        signal_init();
-
-        if (!user_init_proc())
-            return false;
-
-        st_rename_process(name_);
-
-        return true;
+        return *master_instance_;
     }
 
     bool user_init_register(const InitFunc& func){
@@ -63,7 +57,21 @@ public:
         return true;
     }
 
-    bool spawn_workers(const char* name, const taskFunc& func){
+    WorkerStat_Ptr getWorkStatObj(pid_t pid) {
+        if (workers_.find(pid) == workers_.end())
+            return nullptr;
+
+        return workers_[pid];
+    }
+
+    bool trimWorkStatObj(pid_t pid) {
+        if (workers_.find(pid) == workers_.end())
+            return false;
+        return !!workers_.erase(pid);
+    }
+
+    // 用户空间启动进程
+    bool spawnWorkers(const char* name, const taskFunc& func){
         Worker_Ptr node = std::make_shared<Worker>(name, func);
         WorkerStat_Ptr workstat = std::make_shared<WorkerStat_t>();
         if (!node || !workstat)
@@ -72,11 +80,19 @@ public:
         // 首次启动参数
         workstat->start_tm = time(NULL);
         workstat->restart_cnt = 0;
+        workstat->restart_err_cnt = 0;
         workstat->worker = node;
 
-        if (!fork_prepare(workstat)) {
+        return trySpawnWorkers(workstat);
+    }
+
+    // 内部重启进程的接口
+    bool trySpawnWorkers(WorkerStat_Ptr& workstat){
+
+        if (!forkPrepare(workstat)) {
             BOOST_LOG_T(error) << "fork_prepare worker failed, push to dead_workers!";
-            dead_workers_.emplace_back(workstat);
+            ++ workstat->restart_err_cnt;
+            dead_workers_.insert(workstat);
             return false;
         }
 
@@ -85,10 +101,12 @@ public:
         // parent process
         if (worker_pid < 0) {
             BOOST_LOG_T(error) << "start worker failed, push to dead_workers!";
-            dead_workers_.emplace_back(workstat);
+            ++ workstat->restart_err_cnt;
+            dead_workers_.insert(workstat);
             return false;
         }
 
+        ++ workstat->restart_cnt;
         assert(workers_.find(worker_pid) == workers_.end());
         workers_[worker_pid] = workstat;
 
@@ -97,7 +115,7 @@ public:
         return true;
     }
 
-    void MasterLoop() {
+    void masterLoop() {
 
     	for( ; ; ) {
             ::sleep(1);
@@ -107,8 +125,7 @@ public:
 
     ~Master() = default;
 
-private:
-    bool user_init_proc() {
+    bool userInitProc() {
         for (const auto& it: init_list_){
             if (!it())
                 return false;
@@ -118,7 +135,28 @@ private:
         return true;
     }
 
-    bool fork_prepare(WorkerStat_Ptr& workstat) {
+    void showAllStat() {
+        std::cerr << "forkp status info " << std::endl;
+        std::cerr << "active workers:" << std::endl;
+        if (workers_.empty())
+            std::cerr << "None" << std::endl;
+        for (const auto &item: workers_) {
+            std::cerr << boost::format("proc:%s, pid:%d, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
+            % item.second->worker->proc_title_ % item.second->this_pid % item.second->start_tm %
+                item.second->this_start_tm % item.second->restart_cnt << std::endl;
+        }
+        std::cerr << "dead workers:" << std::endl;
+        if (dead_workers_.empty())
+            std::cerr << "None" << std::endl;
+        for (const auto &item: dead_workers_) {
+            std::cerr << boost::format("proc:%s, pid:%d, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
+            % item->worker->proc_title_ % item->this_pid % item->start_tm %
+                item->this_start_tm % item->restart_cnt << std::endl;
+        }
+    }
+
+private:
+    bool forkPrepare(WorkerStat_Ptr& workstat) {
         int pipefd[2];
 
         workstat->worker->workerReset();
@@ -138,7 +176,6 @@ private:
 
         return true;
     }
-
 
     // -1 for error case
     pid_t spawn_workers_internel(WorkerStat_Ptr& workstat)
@@ -163,9 +200,31 @@ private:
     }
 
 private:
+    static void createInstance() {
+        static Master master;
+        master.Init();
+        master_instance_ = &master;
+    }
+
+    Master(): workers_(), dead_workers_(), init_list_()
+    {}
+
+    bool Init() {
+    	boost_log_init("forkpRun");
+        backtrace_init();
+        signal_init();
+
+        st_rename_process(name_);
+        return true;
+    }
+
+    // defined at signal.cpp
+    static Master* master_instance_;
+
+private:
     const char* name_ = "forkp master";
     std::map<pid_t, WorkerStat_Ptr> workers_;
-    std::vector<WorkerStat_Ptr>     dead_workers_;  //没有启动成功的任务
+    std::set<WorkerStat_Ptr>        dead_workers_;  //没有启动成功的任务
     std::vector<InitFunc> init_list_;  // container set not supportted
 };
 

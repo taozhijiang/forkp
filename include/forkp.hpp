@@ -11,6 +11,8 @@ using InitFunc = std::function<bool()>;
 
 extern char **exec_main_argv;
 
+#define MasterIntance (forkp::Master::getInstance())
+
 }
 
 

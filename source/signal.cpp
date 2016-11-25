@@ -18,11 +18,43 @@
 #include <execinfo.h>
 #include <signal.h>
 
+#include <sys/wait.h>
+
 #include <set>
+#include "master.hpp"
 
 namespace forkp {
 
+    #define MasterIntance (forkp::Master::getInstance())
+    Master* Master::master_instance_ = nullptr;
+
     void signalHander(int signo) {
+        if (signo == SIGCHLD) {
+            int stat;
+            pid_t pid = wait(&stat);
+            if (pid < 0) {
+                BOOST_LOG_T(error) << "SIGCHLD wait error!";
+                return;
+            }
+
+            if (WIFEXITED(stat))
+                BOOST_LOG_T(debug) << "child process exit normal!";
+            else
+                BOOST_LOG_T(error) << "child process exit not normal!";
+
+            WorkerStat_Ptr workstat = MasterIntance.getWorkStatObj(pid);
+            if (!workstat) {
+                BOOST_LOG_T(error) << "get child process obj failed => " << pid;
+                return;
+            }
+
+            BOOST_LOG_T(debug) << "respown child process... ";
+            MasterIntance.trimWorkStatObj(pid);
+            MasterIntance.trySpawnWorkers(workstat);
+        }
+        else if (signo == SIGUSR1) {
+            MasterIntance.showAllStat();
+        }
         return;
     }
 
