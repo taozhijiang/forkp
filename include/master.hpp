@@ -70,6 +70,21 @@ public:
         return !!workers_.erase(pid);
     }
 
+    bool spawnWorkers(const char* name, const char* exec, char *const *argv) {
+        Worker_Ptr node = std::make_shared<Worker>(name, exec, argv);
+        WorkerStat_Ptr workstat = std::make_shared<WorkerStat_t>();
+        if (!node || !workstat)
+            return false;
+
+        // 首次启动参数
+        workstat->start_tm = time(NULL);
+        workstat->restart_cnt = 0;
+        workstat->restart_err_cnt = 0;
+        workstat->worker = node;
+
+        return trySpawnWorkers(workstat);
+    }
+
     // 用户空间启动进程
     bool spawnWorkers(const char* name, const taskFunc& func){
         Worker_Ptr node = std::make_shared<Worker>(name, func);
@@ -141,16 +156,18 @@ public:
         if (workers_.empty())
             std::cerr << "None" << std::endl;
         for (const auto &item: workers_) {
-            std::cerr << boost::format("proc:%s, pid:%d, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
-            % item.second->worker->proc_title_ % item.second->this_pid % item.second->start_tm %
+            std::cerr << boost::format("[%c]proc:%s, pid:%d, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
+            % (item.second->worker->type_ == WorkerType::WorkerProcess ? 'P':'E') %
+                item.second->worker->proc_title_ % item.second->this_pid % item.second->start_tm %
                 item.second->this_start_tm % item.second->restart_cnt << std::endl;
         }
         std::cerr << "dead workers:" << std::endl;
         if (dead_workers_.empty())
             std::cerr << "None" << std::endl;
         for (const auto &item: dead_workers_) {
-            std::cerr << boost::format("proc:%s, pid:%d, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
-            % item->worker->proc_title_ % item->this_pid % item->start_tm %
+            std::cerr << boost::format("[%c]proc:%s, pid:%d, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
+            % (item->worker->type_ == WorkerType::WorkerProcess ? 'P':'E') %
+                item->worker->proc_title_ % item->this_pid % item->start_tm %
                 item->this_start_tm % item->restart_cnt << std::endl;
         }
     }
@@ -189,7 +206,13 @@ private:
         if (pid == 0) // child process
         {
             std::swap(workstat->worker->notify_.read_, workstat->worker->notify_.write_);
-            workstat->worker->startProcess();
+
+            if (workstat->worker->type_ == WorkerType::WorkerProcess) {
+                workstat->worker->startProcess();
+            }
+            else {
+                workstat->worker->startExec();
+            }
         }
 
         workstat->this_pid = pid;

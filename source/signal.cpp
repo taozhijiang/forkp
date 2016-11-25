@@ -31,8 +31,12 @@ namespace forkp {
     void signalHander(int signo) {
         if (signo == SIGCHLD) {
             int stat;
-            pid_t pid = wait(&stat);
-            if (pid < 0) {
+            pid_t pid = waitpid(-1, &stat, WNOHANG);
+            if (pid == 0)
+                return;
+
+            if (pid < 0)
+            {
                 BOOST_LOG_T(error) << "SIGCHLD wait error!";
                 return;
             }
