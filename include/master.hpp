@@ -26,10 +26,22 @@ using taskFunc = std::function<void()>;
 
 extern bool st_rename_process(const char* name);
 
+typedef struct {
+    pid_t        this_pid;
+    time_t       this_start_tm;
+    std::size_t this_miss_cnt; // 当前启动时候错过的心跳
+
+    time_t       start_tm;
+    std::size_t restart_cnt;   // 被启动次数
+
+    Worker_Ptr   worker;
+} WorkerStat_t;
+using WorkerStat_Ptr = std::shared_ptr<WorkerStat_t>;
+
 class Master final{
 
 public:
-    Master(): workers_(), init_list_()
+    Master(): workers_(), dead_workers_(), init_list_()
     {}
 
     bool Init() {
@@ -51,42 +63,38 @@ public:
         return true;
     }
 
-    std::shared_ptr<Worker> spawn_workers(const char* name, const taskFunc& func){
-        std::shared_ptr<Worker> node = std::make_shared<Worker>(name, func);
-        if (! node)
-            return nullptr;
+    bool spawn_workers(const char* name, const taskFunc& func){
+        Worker_Ptr node = std::make_shared<Worker>(name, func);
+        WorkerStat_Ptr workstat = std::make_shared<WorkerStat_t>();
+        if (!node || !workstat)
+            return false;
 
-        pid_t pid = fork();
-        if (pid < 0){
-            BOOST_LOG_T(error) << "Fork() Error!";
-            return nullptr;
+        // 首次启动参数
+        workstat->start_tm = time(NULL);
+        workstat->restart_cnt = 0;
+        workstat->worker = node;
+
+        if (!fork_prepare(workstat)) {
+            BOOST_LOG_T(error) << "fork_prepare worker failed, push to dead_workers!";
+            dead_workers_.emplace_back(workstat);
+            return false;
         }
 
-        int pipefd[2];
-        if (pipe(pipefd) < 0)
-        {
-            BOOST_LOG_T(error) << "pipe() Error!";
-            return nullptr;
+        pid_t worker_pid = spawn_workers_internel(workstat);
+
+        // parent process
+        if (worker_pid < 0) {
+            BOOST_LOG_T(error) << "start worker failed, push to dead_workers!";
+            dead_workers_.emplace_back(workstat);
+            return false;
         }
 
-        st_make_nonblock(pipefd[0]);
-        st_make_nonblock(pipefd[1]);
+        assert(workers_.find(worker_pid) == workers_.end());
+        workers_[worker_pid] = workstat;
 
-        node->notify_.read_ = pipefd[0];
-        node->notify_.write_ = pipefd[1];
-
-        if (pid == 0) // child process
-        {
-            std::swap(node->notify_.read_, node->notify_.write_);
-            node->startProcess();
-        }
-
-        return node;
-    }
-
-    std::shared_ptr<Worker> exec_workers(){
-
-        return nullptr;
+        BOOST_LOG_T(debug) << "start worker OK for " << workstat->worker->proc_title_ <<
+            ", with pid=" << worker_pid ;
+        return true;
     }
 
     void MasterLoop() {
@@ -110,10 +118,55 @@ private:
         return true;
     }
 
+    bool fork_prepare(WorkerStat_Ptr& workstat) {
+        int pipefd[2];
+
+        workstat->worker->workerReset();
+        if (pipe(pipefd) < 0)
+        {
+            BOOST_LOG_T(error) << "pipe() Error!";
+            return false;
+        }
+
+        st_make_nonblock(pipefd[0]);
+        st_make_nonblock(pipefd[1]);
+
+        workstat->worker->notify_.read_ = pipefd[0];
+        workstat->worker->notify_.write_ = pipefd[1];
+
+        workstat->this_miss_cnt = 0;
+
+        return true;
+    }
+
+
+    // -1 for error case
+    pid_t spawn_workers_internel(WorkerStat_Ptr& workstat)
+    {
+        pid_t pid = fork();
+        if (pid < 0) {
+            BOOST_LOG_T(error) << "Fork() Error!";
+            return -1;
+        }
+
+        if (pid == 0) // child process
+        {
+            std::swap(workstat->worker->notify_.read_, workstat->worker->notify_.write_);
+            workstat->worker->startProcess();
+        }
+
+        workstat->this_pid = pid;
+        workstat->this_start_tm = time(NULL);
+
+        // parent process continue
+        return pid;
+    }
+
 private:
     const char* name_ = "forkp master";
-    std::map<pid_t, std::shared_ptr<Worker>> workers_;
-    std::vector<InitFunc> init_list_;  // set not supportted
+    std::map<pid_t, WorkerStat_Ptr> workers_;
+    std::vector<WorkerStat_Ptr>     dead_workers_;  //没有启动成功的任务
+    std::vector<InitFunc> init_list_;  // container set not supportted
 };
 
 }

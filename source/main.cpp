@@ -16,7 +16,7 @@ void taskFu(int id) {
 int main(int argc, char* argv[])
 {
     // for change process name
-    forkp::exec_name = argv[0];
+    forkp::exec_main_argv = argv;
 
     forkp::Master master;
     master.user_init_register( []() -> bool {

@@ -24,15 +24,32 @@ class Worker {
 public:
     Worker(const char* name, const taskFunc& func):
         pid_ ( getpid() ),
-        ppid_ ( getppid() ),
-        func_(func)
+        ppid_ ( getpid() ),
+        func_(func),
+        notify_( {-1, -1} )
     {
         strncpy(proc_title_, name, 16);
         proc_title_[sizeof(proc_title_)-1] = 0;
     }
 
-    virtual ~Worker() = default;
+    virtual ~Worker(){
+        workerReset();
+    }
 
+    // 重置状态
+    void workerReset() {
+        pid_ = ppid_ = getpid();
+
+        if (notify_.read_ != -1)
+            close(notify_.read_);
+
+        if (notify_.write_ != -1)
+            close(notify_.write_);
+
+        notify_.read_ = notify_.write_ = -1;
+    }
+
+    // 使用函数开辟进程
     void startProcess() {
 
         assert(pid_ == getppid());
@@ -42,6 +59,7 @@ public:
         func_();
     }
 
+    // 使用外部exec开辟进程
     void startExec() {
         assert(pid_ == getppid());
         pid_ = getpid();
@@ -57,6 +75,8 @@ private:
     const taskFunc func_;
     Notify   notify_;
 };
+
+using Worker_Ptr = std::shared_ptr<Worker>;
 
 }
 

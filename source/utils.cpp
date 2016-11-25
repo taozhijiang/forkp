@@ -17,16 +17,16 @@
 namespace forkp {
 
 
-    extern char *exec_name = NULL;
+    extern char **exec_main_argv = NULL;
 
     bool st_rename_process(const char* name) {
         if (!name &&  !strlen(name))
             return false;
 
-        if (exec_name && strlen(exec_name)) {
+        if (exec_main_argv && exec_main_argv[0]) {
             BOOST_LOG_T(info) << "Rename original process name! ";
-            std::size_t len = strlen(exec_name);
-            strncpy(exec_name, name, len);
+            std::size_t len = strlen(exec_main_argv[0]);
+            strncpy(exec_main_argv[0], name, len);
 
             return true;
         }

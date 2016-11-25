@@ -9,7 +9,7 @@ namespace forkp {
 
 using InitFunc = std::function<bool()>;
 
-extern char *exec_name;
+extern char **exec_main_argv;
 
 }
 
