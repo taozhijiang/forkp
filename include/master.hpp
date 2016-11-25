@@ -71,8 +71,9 @@ public:
         return !!workers_.erase(pid);
     }
 
-    bool spawnWorkers(const char* name, const char* exec, char *const *argv) {
-        Worker_Ptr node = make_shared<Worker>(name, exec, argv);
+    bool spawnWorkers( const char* name, const char* cwd,
+                        const char* exec, char *const *argv) {
+        Worker_Ptr node = make_shared<Worker>(name, cwd, exec, argv);
         WorkerStat_Ptr workstat = make_shared<WorkerStat_t>();
         if (!node || !workstat)
             return false;
@@ -153,8 +154,8 @@ public:
     }
 
     void showAllStat() {
-        std::cerr << "forkp status info " << std::endl;
-        std::cerr << "active workers:" << std::endl;
+        std::cerr << "!!!! forkp status info !!!!" << std::endl;
+        std::cerr << "!!!! active workers:" << std::endl;
         if (workers_.empty())
             std::cerr << "None" << std::endl;
         std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
@@ -164,7 +165,7 @@ public:
                 m_it->second->worker->proc_title_ % m_it->second->this_pid % m_it->second->start_tm %
                 m_it->second->this_start_tm % m_it->second->restart_cnt << std::endl;
         }
-        std::cerr << "dead workers:" << std::endl;
+        std::cerr << "!!!! dead workers:" << std::endl;
         if (dead_workers_.empty())
             std::cerr << "None" << std::endl;
         std::set<WorkerStat_Ptr>::const_iterator s_it;
@@ -201,6 +202,11 @@ private:
     // -1 for error case
     pid_t spawn_workers_internel(WorkerStat_Ptr& workstat)
     {
+        time_t now = ::time(NULL);
+        // 避免过快的fork()
+        if (now - workstat->this_start_tm < 2)
+            ::sleep(1);
+
         pid_t pid = fork();
         if (pid < 0) {
             BOOST_LOG_T(error) << "Fork() Error!";

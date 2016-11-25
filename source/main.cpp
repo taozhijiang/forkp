@@ -31,7 +31,8 @@ int main(int argc, char* argv[])
     MasterIntance.spawnWorkers("test proc", std::bind(taskFu, 8));
 
     char *args[] = {"forkp worker exec_test", (char *) 0 };
-    MasterIntance.spawnWorkers("execTest", "/home/taozj/forkp/test/exec_test", args);
+    MasterIntance.spawnWorkers("execTest", "/home/taozj/forkp",
+    							"/home/taozj/forkp/test/exec_test", args);
 
 
     MasterIntance.masterLoop();

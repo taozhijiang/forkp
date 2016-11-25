@@ -29,6 +29,7 @@ class Worker {
 public:
     Worker(const char* name, const taskFunc& func):
         type_(WorkerType::WorkerProcess),
+        cwd_(nullptr),
         exec_(nullptr),
         exec_argv_(nullptr),
         func_(func),
@@ -40,8 +41,10 @@ public:
         proc_title_[sizeof(proc_title_)-1] = 0;
     }
 
-    Worker(const char* name, const char* const exec, char *const *argv):
+    Worker(const char* name, const char* cwd,
+           const char* const exec, char *const *argv):
         type_(WorkerType::WorkerExec),
+        cwd_(cwd),
         exec_(exec),
         exec_argv_(argv),
         func_(taskFunc()),
@@ -88,6 +91,10 @@ public:
 
         // Can not handle exec rename ... but just exec argv[1] specify it!
         // st_rename_process(proc_title_);
+        if (cwd_){
+            BOOST_LOG_T(info) << "Changing working dir to " << cwd_;
+            ::chdir(cwd_);
+        }
         ::execv(exec_, exec_argv_);
     }
 
@@ -95,6 +102,7 @@ private:
     char proc_title_[16];
     WorkerType type_;
 
+    const char* cwd_;
     const char* exec_;
     char *const *exec_argv_;
     const taskFunc func_;
