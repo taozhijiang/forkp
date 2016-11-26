@@ -43,6 +43,7 @@ using std::bind;
 
 #endif
 
+#include <signal.h>
 
 namespace forkp {
 
@@ -64,6 +65,17 @@ static inline const char* basename(const char* file) {
 
 
 int st_make_nonblock(int socket);
+
+enum class FORKP_SIG {
+    FORKP_INFO = SIGUSR1,  /* 显示forkp信息 */
+    SHDN_CHLD = SIGTERM,   /* 杀死所有children process*/
+    REOP_CHLD = SIGUSR2,   /* 杀死所有children process*/
+    WATCH_DOG = SIGWINCH,  /* 看门狗，只在Process模式下支持 */
+    CHLD      = SIGCHLD,
+    PIPE      = SIGPIPE,
+};
+
+#define FORKP_SIG_R(x) (static_cast<int>(x))
 
 }
 

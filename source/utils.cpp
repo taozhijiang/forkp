@@ -14,12 +14,24 @@
 #include <boost/log/attributes/named_scope.hpp>
 #include <boost/log/support/date_time.hpp>
 
+#include "master.hpp"
+
 namespace forkp {
 
 
     extern char **exec_main_argv = NULL;
 
-    bool st_transform_to_fd( int src,  int des ) {
+    bool st_feed_watchdog( int src, WorkerStat_Ptr& workstat) {
+        char read_buf;
+
+        read(src, &read_buf, 1);
+        if (workstat->this_miss_cnt > 0)
+            -- workstat->this_miss_cnt;
+
+        return true;
+    }
+
+    bool st_transform_to_fd( int src, int des ) {
         char buff[512];
         int ret = 0;
 

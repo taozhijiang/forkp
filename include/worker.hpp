@@ -17,26 +17,33 @@ typedef struct {
 
 class Master;
 typedef function<void()> taskFunc;
+class Worker;
+static Worker* p_worker = NULL;
+static void workerSignalHandler(int signo);
 
 extern bool st_rename_process(const char* name);
 
 enum class WorkerType {
-    WorkerProcess = 1,
-    WorkerExec = 2,
+    workerProcess = 1,
+    workerExec = 2,
 };
+
+
 class Worker {
 
     friend class Master;
+    friend void workerSignalHandler(int signo);
 
 public:
     Worker(const char* name, const taskFunc& func):
-        type_(WorkerType::WorkerProcess),
+        type_(WorkerType::workerProcess),
         cwd_(nullptr),
         exec_(nullptr),
         exec_argv_(nullptr),
         func_(func),
         pid_ ( getpid() ),
         ppid_ ( getpid() ),
+        notify_( {-1, -1} ),
         channel_( {-1, -1} )
     {
         strncpy(proc_title_, name, 16);
@@ -45,13 +52,14 @@ public:
 
     Worker(const char* name, const char* cwd,
            const char* const exec, char *const *argv):
-        type_(WorkerType::WorkerExec),
+        type_(WorkerType::workerExec),
         cwd_(cwd),
         exec_(exec),
         exec_argv_(argv),
         func_(taskFunc()),
         pid_ ( getpid() ),
         ppid_ ( getpid() ),
+        notify_( {-1, -1} ),
         channel_( {-1, -1} )
     {
         strncpy(proc_title_, name, 16);
@@ -72,6 +80,12 @@ public:
         if (channel_.write_ != -1)
             close(channel_.write_);
 
+        if (notify_.read_ != -1)
+            close(notify_.read_);
+        if (notify_.write_ != -1)
+            close(notify_.write_);
+
+        channel_.read_ = channel_.write_ = -1;
         notify_.read_ = notify_.write_ = -1;
 
         return;
@@ -83,6 +97,11 @@ public:
         assert(pid_ == getppid());
         pid_ = getpid();
         st_rename_process(proc_title_);
+
+        if (!prepStart()) {
+            BOOST_LOG_T(info) << "prepStart error, we abort for " << proc_title_;
+            ::abort();
+        }
 
         func_();
     }
@@ -98,8 +117,27 @@ public:
             BOOST_LOG_T(info) << "Changing working dir to " << cwd_;
             ::chdir(cwd_);
         }
+
+        if (!prepStart()) {
+            BOOST_LOG_T(info) << "prepStart error, we abort for " << proc_title_;
+            ::abort();
+        }
+
         ::execv(exec_, exec_argv_);
+
+        // if return, err found
+        ::abort();
     }
+
+private:
+    bool prepStart() {
+        // 暴露this给传统C函数使用
+        p_worker = this;
+
+        ::signal(FORKP_SIG_R(FORKP_SIG::WATCH_DOG), workerSignalHandler);
+        return true;
+    }
+
 
 private:
     char proc_title_[16];
@@ -117,6 +155,26 @@ private:
 };
 
 typedef shared_ptr<Worker> Worker_Ptr;
+
+/**
+ * 对于子进程的保活，如果是Process类型，那么父进程定期向
+ * 子进程发送信号，子进程从notify_发回一个字节
+ *
+ * 对于一般的Exec，父进程只能用非信号的kill，查看子进程是否还存在
+ */
+static void workerSignalHandler(int signo) {
+
+    // 对Master发送的信号，通过notify_通道回写一个字节
+    if (signo == FORKP_SIG_R(FORKP_SIG::WATCH_DOG) ) {
+        if (!p_worker || p_worker->notify_.write_ == -1) {
+            BOOST_LOG_T(error) << "for process, notify_.write_ is -1 !!";
+            ::abort();
+        }
+
+        write(p_worker->notify_.write_, "C", 1);
+    }
+}
+
 
 }
 

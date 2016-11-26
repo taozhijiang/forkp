@@ -53,7 +53,11 @@ typedef struct {
 
 typedef shared_ptr<WorkerStat_t> WorkerStat_Ptr;
 
+extern bool st_feed_watchdog( int src, WorkerStat_Ptr& workstat);
+
 class Master{
+
+    friend bool st_feed_watchdog( int src, WorkerStat_Ptr& workstat);
 
 public:
     static Master& getInstance() {
@@ -154,13 +158,29 @@ public:
         }
 
         if (workstat->out_log_fd > 0) {
+            assert (workstat->worker->channel_.read_ != -1);
             ret = epollh_->addEvent(workstat->worker->channel_.read_,
                                 EPOLLIN | EPOLLERR,
                                 bind(st_transform_to_fd,
                                      workstat->worker->channel_.read_,
                                      workstat->out_log_fd));
             if (!ret)
-                BOOST_LOG_T(error) << "register failed for " << workstat->worker->channel_.read_;
+                BOOST_LOG_T(error) << "register channel_ failed for " << workstat->worker->channel_.read_;
+        }
+
+        if (workstat->worker->type_ == WorkerType::workerProcess) {
+            assert (workstat->worker->notify_.read_ != -1);
+
+            close(workstat->worker->notify_.write_);
+            workstat->worker->notify_.write_ = -1;
+
+            ret = epollh_->addEvent(workstat->worker->notify_.read_,
+                                EPOLLIN | EPOLLERR,
+                                bind(st_feed_watchdog,
+                                     workstat->worker->notify_.read_,
+                                     workstat));
+            if (!ret)
+                BOOST_LOG_T(error) << "register notify_ failed for " << workstat->worker->notify_.read_;
         }
 
         ++workstat->restart_cnt;
@@ -176,6 +196,19 @@ public:
 
     	for( ; ; ) {
             epollh_->traverseAndHandleEvent(200);
+
+            std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
+            for (m_it = workers_.cbegin(); m_it != workers_.cend(); ++m_it) {
+                if (m_it->second->worker->type_ == WorkerType::workerProcess) {
+                    ::kill(m_it->first, FORKP_SIG_R(FORKP_SIG::WATCH_DOG) );
+                    ++ m_it->second->this_miss_cnt;
+                } else {
+                    if ( ::kill(m_it->first, 0) == -1 )
+                        ++ m_it->second->this_miss_cnt;
+                }
+            }
+
+            ::sleep(1);
         }
 
     }
@@ -201,7 +234,7 @@ public:
         std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
         for (m_it = workers_.cbegin(); m_it != workers_.cend(); ++m_it) {
             std::cerr << boost::format("[%c]proc:%s, pid:%d, start_pid:%lu, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
-            % (m_it->second->worker->type_ == WorkerType::WorkerProcess ? 'P':'E') %
+            % (m_it->second->worker->type_ == WorkerType::workerProcess ? 'P':'E') %
                 m_it->second->worker->proc_title_ % m_it->second->this_pid % m_it->second->start_pid %
                 m_it->second->start_tm %
                 m_it->second->this_start_tm % m_it->second->restart_cnt << std::endl;
@@ -212,7 +245,7 @@ public:
         std::set<WorkerStat_Ptr>::const_iterator s_it;
         for (s_it = dead_workers_.cbegin(); s_it != dead_workers_.cend(); ++s_it) {
             std::cerr << boost::format("[%c]proc:%s, pid:%d, start_pid:%lu, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
-            % ((*s_it)->worker->type_ == WorkerType::WorkerProcess ? 'P':'E') %
+            % ((*s_it)->worker->type_ == WorkerType::workerProcess ? 'P':'E') %
                 (*s_it)->worker->proc_title_ % (*s_it)->this_pid % (*s_it)->start_pid % (*s_it)->start_tm %
                 (*s_it)->this_start_tm % (*s_it)->restart_cnt << std::endl;
         }
@@ -236,6 +269,21 @@ private:
 
         workstat->worker->channel_.read_ = pipefd[0];
         workstat->worker->channel_.write_ = pipefd[1];
+
+        if ( workstat->worker->type_ == WorkerType::workerProcess)
+        {
+            if ( pipe(pipefd) < 0 ) {
+                BOOST_LOG_T(error) << "pipe() for notify_ Error!";
+                return false;
+            }
+
+            st_make_nonblock(pipefd[0]);
+            st_make_nonblock(pipefd[1]);
+
+            workstat->worker->notify_.read_ = pipefd[0];
+            workstat->worker->notify_.write_ = pipefd[1];
+        }
+
         workstat->this_miss_cnt = 0;
 
         return true;
@@ -270,7 +318,11 @@ private:
                 BOOST_LOG_T(error) << "dup2 STDOUT_FILENO STDERR_FILENO  Error!";
             }
 
-            if (workstat->worker->type_ == WorkerType::WorkerProcess) {
+            if (workstat->worker->type_ == WorkerType::workerProcess) {
+                // notify_
+                close(workstat->worker->notify_.read_);
+                workstat->worker->notify_.read_ = -1;
+
                 workstat->worker->startProcess();
             }
             else {

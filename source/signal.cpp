@@ -29,7 +29,7 @@ namespace forkp {
     Master* Master::master_instance_ = nullptr;
 
     void signalHander(int signo) {
-        if (signo == SIGCHLD) {
+        if (signo == FORKP_SIG_R(FORKP_SIG::CHLD)) {
             int stat;
             pid_t pid = waitpid(-1, &stat, WNOHANG);
             if (pid == 0)
@@ -56,7 +56,7 @@ namespace forkp {
             MasterIntance.trimWorkStatObj(pid);
             MasterIntance.trySpawnWorkers(workstat);
         }
-        else if (signo == SIGUSR1) {
+        else if (signo == FORKP_SIG_R(FORKP_SIG::FORKP_INFO)) {
             MasterIntance.showAllStat();
         }
         return;
@@ -64,23 +64,25 @@ namespace forkp {
 
     /* signal init */
     struct signal_t {
-        int signo;
+        FORKP_SIG signo;
         const char* desc;
         //void (*sighandler_t)(int)
         sighandler_t handler;
     };
 
     static std::vector<signal_t> signal_list {
-        {SIGUSR1, "USR1: print info", signalHander},
-        {SIGCHLD, "SIGCHLD: restart process", signalHander},
-        {SIGPIPE, "PIPE: SIG_IGN", SIG_IGN},
+        {FORKP_SIG::FORKP_INFO, "SIG_FORKP_INFO: print info", signalHander},
+        {FORKP_SIG::SHDN_CHLD,  "SIG_SHDN_CHLD: shutdown all children process", signalHander},
+        {FORKP_SIG::REOP_CHLD,  "SIG_REOP_CHLD: restart all children process", signalHander},
+        {FORKP_SIG::CHLD,       "SIG_CHLD: child process terminated", signalHander},
+        {FORKP_SIG::PIPE,       "SIG_PIPE: SIG_IGN", SIG_IGN},
     };
 
     extern void signal_init() {
         std::vector<signal_t>::const_iterator cit;
         for (cit = signal_list.cbegin(); cit != signal_list.cend(); ++cit) {
             BOOST_LOG_T(debug) << "Signal Hook for " << cit->desc;
-            ::signal(cit->signo, cit->handler);
+            ::signal(FORKP_SIG_R(cit->signo), cit->handler);
         }
 
         BOOST_LOG_T(info) << "Signal Init OK!";
