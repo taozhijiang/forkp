@@ -78,6 +78,9 @@ public:
 
         int ret  = epoll_wait(event_fd_, events_, max_events_, ms);
         if (ret == -1) {
+            if ( errno == EINTR)
+                return true;
+
             BOOST_LOG_T(debug) << "epoll_wait error: " << ms << ", ret=" << ret;
             return false;
         }

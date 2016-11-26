@@ -55,24 +55,7 @@ namespace forkp {
             else
                 BOOST_LOG_T(error) << "child process exit not normal!";
 
-            WorkerStat_Ptr workstat = MasterIntance.getWorkStatObj(pid);
-            if (!workstat) {
-                BOOST_LOG_T(error) << "get child process obj failed => " << pid;
-                return;
-            }
-
-            // trim from active running list
-            MasterIntance.trimWorkStatObj(pid);
-
-            if (FORKP_SIG_CMD.reopen_child || FORKP_SIG_CMD.shutdown_child){
-                MasterIntance.insertDeadWorkObj(workstat);
-                return;
-            }
-
-            // If success, will auto attached to workers_,
-            // else, will append to dead_workers_.
-            BOOST_LOG_T(debug) << "respown child process... ";
-            MasterIntance.trySpawnWorkers(workstat);
+            MasterIntance.insertDeferWorkPid(pid);
         }
         else if (signo == FORKP_SIG_R(FORKP_SIG::FORKP_INFO)) {
             MasterIntance.showAllStat();

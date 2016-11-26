@@ -7,6 +7,7 @@
 
 #include <map>
 #include <set>
+#include <deque>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -74,27 +75,9 @@ public:
         return true;
     }
 
-    /**
-     * 下面三个函数都是作为友元的信号处理函数调用，
-     * 因为没有BLOCK信号，所以这些函数不能再进程上下文被调用
-     */
-    WorkerStat_Ptr getWorkStatObj(pid_t pid) {
-        if (workers_.find(pid) == workers_.end())
-            return WorkerStat_Ptr();
 
-        return workers_[pid];
-    }
-
-    bool trimWorkStatObj(pid_t pid) {
-        if (workers_.find(pid) == workers_.end())
-            return false;
-        return !!workers_.erase(pid);
-    }
-
-    bool insertDeadWorkObj(const WorkerStat_Ptr& dead) {
-        if (dead_workers_.find(dead) != dead_workers_.end())
-            return false;
-        dead_workers_.insert(dead);
+    bool insertDeferWorkPid(pid_t pid) {
+        defer_workers_.push_back(pid);
         return true;
     }
 
@@ -132,15 +115,13 @@ public:
         return trySpawnWorkers(workstat);
     }
 
-    // 内部重启进程的接口
+    // 内部可以使用的重启进程的接口
     bool trySpawnWorkers(WorkerStat_Ptr& workstat){
         bool ret = false;
 
         if (!forkPrepare(workstat)) {
             BOOST_LOG_T(error) << "fork_prepare worker failed, push to dead_workers!";
             ++ workstat->restart_err_cnt;
-
-            FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
             dead_workers_.insert(workstat);
             return false;
         }
@@ -152,8 +133,6 @@ public:
         if (worker_pid < 0) {
             BOOST_LOG_T(error) << "start worker failed, push to dead_workers!";
             ++ workstat->restart_err_cnt;
-
-            FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
             dead_workers_.insert(workstat);
             return false;
         }
@@ -200,9 +179,6 @@ public:
                 BOOST_LOG_T(error) << "register notify_ failed for " << workstat->worker->notify_.read_;
         }
 
-
-        FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
-
         ++workstat->restart_cnt;
         assert(workers_.find(worker_pid) == workers_.end());
         workers_[worker_pid] = workstat;
@@ -226,9 +202,9 @@ public:
                 ::exit(EXIT_SUCCESS);
             }
 
-            if (FORKP_SIG_CMD.shutdown_child) {
+            processDeferChild();
 
-                FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
+            if (FORKP_SIG_CMD.shutdown_child) {
                 if (!workers_.empty()) {
                     shutdownAllChild();
                 } else {
@@ -259,8 +235,6 @@ public:
     void showAllStat() {
         std::cerr << "!!!! forkp status info !!!!" << std::endl;
 
-        FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
-
         std::cerr << "!!!! active workers:" << std::endl;
         if (workers_.empty())
             std::cerr << "None" << std::endl;
@@ -287,6 +261,49 @@ public:
 
 private:
 
+    void processDeferChild() {
+
+        FORKP_SIG_GUARD defer_guard(FORKP_SIG::CHLD);
+
+        if (defer_workers_.empty())
+            return;
+
+        std::vector<pid_t>::const_iterator cit;
+        WorkerStat_Ptr workstat;
+        std::vector<WorkerStat_Ptr> respawn;
+
+        for (cit = defer_workers_.cbegin(); cit != defer_workers_.cend(); ++cit) {
+            if (workers_.find(*cit) == workers_.end()) {
+                BOOST_LOG_T(error) << "get child process obj failed => " << *cit;
+                continue;
+            }
+
+            workstat = workers_.at(*cit);
+            workers_.erase(*cit);
+            if (FORKP_SIG_CMD.reopen_child || FORKP_SIG_CMD.shutdown_child) {
+                dead_workers_.insert(workstat);
+                continue;
+            }
+
+            respawn.push_back(workstat);
+        }
+
+        defer_workers_.clear();
+
+        if (respawn.empty())
+            return;
+
+        // If success, will auto attached to workers_,
+        // else, will append to dead_workers_.
+        std::vector<WorkerStat_Ptr>::iterator res;
+        for (res = respawn.begin(); res != respawn.end(); ++res) {
+            BOOST_LOG_T(debug) << "respown child process " << (*res)->worker->proc_title_;
+            trySpawnWorkers(*res);
+        }
+
+        return;
+    }
+
     void shutdownAllChild() {
         std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
 
@@ -300,8 +317,6 @@ private:
     bool watchDogCallback() {
         char null_read[8];
         read(watch_dog_timer_fd_, null_read, 8);
-
-        FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
 
         std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
         for (m_it = workers_.cbegin(); m_it != workers_.cend(); ++m_it) {
@@ -456,7 +471,8 @@ private:
 
     Master():
         name_("forkp master"),
-        workers_(), dead_workers_(), init_list_(),
+        workers_(), dead_workers_(), defer_workers_(),
+        init_list_(),
         epollh_(make_shared<Epoll>(128)),
         watch_dog_timer_fd_(-1)
     {}
@@ -483,7 +499,10 @@ private:
 private:
     const char* name_;
     std::map<pid_t, WorkerStat_Ptr> workers_;
-    std::set<WorkerStat_Ptr>        dead_workers_;  //没有启动成功的任务
+    std::set<WorkerStat_Ptr>        dead_workers_;  // 没有启动成功的任务
+
+    // 当收到CHLD信号的时候，将对应的进程pid放到这里，减少信号处理的工作，退后的工作放到进程上下文中
+    std::vector<pid_t>              defer_workers_;
     std::vector<InitFunc> init_list_;  // container set not supportted
     shared_ptr<Epoll> epollh_;
     int watch_dog_timer_fd_;
