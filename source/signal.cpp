@@ -40,22 +40,30 @@ namespace forkp {
 
     void signalHander(int signo) {
         if (signo == FORKP_SIG_R(FORKP_SIG::CHLD)) {
-            int stat;
-            pid_t pid = waitpid(-1, &stat, WNOHANG);
-            if (pid == 0)
-                return;
+            /**
+             * waitpid可能一次信号有多个CHILD就绪，必须放在循环中直到返回0表示处理完毕，
+             * 否则会有遗留的僵尸线程问题
+             */
+            for (;;) {
+                int stat;
 
-            if (pid < 0) {
-                BOOST_LOG_T(error) << "SIGCHLD wait error!";
-                return;
+                pid_t pid = waitpid(-1, &stat, WNOHANG);
+                if (pid == 0)
+                    return;
+
+                if (pid < 0) {
+                    BOOST_LOG_T(error) << "SIGCHLD wait error!";
+                    return;
+                }
+
+                if (WIFEXITED(stat))
+                    BOOST_LOG_T(debug) << "child process " << pid << " exit normal!";
+                else
+                    BOOST_LOG_T(error) << "child process " << pid << " exit not normal!";
+
+                MasterIntance.insertDeferWorkPid(pid);
+
             }
-
-            if (WIFEXITED(stat))
-                BOOST_LOG_T(debug) << "child process exit normal!";
-            else
-                BOOST_LOG_T(error) << "child process exit not normal!";
-
-            MasterIntance.insertDeferWorkPid(pid);
         }
         else if (signo == FORKP_SIG_R(FORKP_SIG::FORKP_INFO)) {
             MasterIntance.showAllStat();
