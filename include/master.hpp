@@ -213,7 +213,25 @@ public:
                 }
             }
 
-            if (FORKP_SIG_CMD.shutdown_child) {
+            // shutdown all children process, and restart them all
+            if (FORKP_SIG_CMD.reopen_child) {
+                if (!workers_.empty()) {
+                    shutdownAllChild();
+                } else {
+                    BOOST_LOG_T(info) << "SHUTDOWN children process finished, not respawn them!";
+                    FORKP_SIG_CMD.reopen_child = false;
+
+                    // 启动的时候，如果启动失败会重新修改dead_workers_容器，干扰迭代器，所以
+                    // 这里必须将需要启动的worker拷贝出来，然后清空dead_workers_
+                    // std::set can only retrive const
+                    std::vector<WorkerStat_Ptr>::iterator it;
+                    std::vector<WorkerStat_Ptr> respawn(dead_workers_.cbegin(), dead_workers_.cend());
+                    dead_workers_.clear();
+                    for (it = respawn.begin(); it != respawn.end(); ++it) {
+                        BOOST_LOG_T(debug) << "respown child process " << (*it)->worker->proc_title_;
+                        trySpawnWorkers(*it);
+                    }
+                }
             }
         }
 
@@ -281,6 +299,11 @@ private:
             workstat = workers_.at(*cit);
             workers_.erase(*cit);
             if (FORKP_SIG_CMD.reopen_child || FORKP_SIG_CMD.shutdown_child) {
+                if (workstat->worker->type_ == WorkerType::workerProcess) {
+                    epollh_->delEvent(workstat->worker->notify_.read_);
+                }
+                epollh_->delEvent(workstat->worker->channel_.read_);
+                workstat->worker->workerReset();
                 dead_workers_.insert(workstat);
                 continue;
             }

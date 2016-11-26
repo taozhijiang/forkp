@@ -71,7 +71,7 @@ public:
         workerReset();
     }
 
-    // 重置状态
+    // 重置状态，只可能被master 调用
     void workerReset() {
         pid_ = ppid_ = getpid();
 
@@ -130,6 +130,7 @@ public:
     }
 
 private:
+
     bool prepStart() {
         // 暴露this给传统C函数使用
         p_worker = this;
