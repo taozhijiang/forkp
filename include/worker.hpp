@@ -135,6 +135,7 @@ private:
         p_worker = this;
 
         sigset_t set;
+        ::sigemptyset(&set);
         ::sigaddset(&set, FORKP_SIG_R(FORKP_SIG::FORKP_INFO));
         ::sigaddset(&set, FORKP_SIG_R(FORKP_SIG::SHDN_CHLD));
         ::sigaddset(&set, FORKP_SIG_R(FORKP_SIG::REOP_CHLD));

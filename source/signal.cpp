@@ -28,6 +28,8 @@ namespace forkp {
     #define MasterIntance (forkp::Master::getInstance())
     Master* Master::master_instance_ = nullptr;
 
+    struct forkp_sig_cmd  FORKP_SIG_CMD;
+
     /**
      * 虽然Master是单线程的，但是信号是异步的，在信号处理函数中操作
      * 全局数据结构是不安全的，所以这也是Nginx使用设置标识然后主进程
@@ -43,8 +45,7 @@ namespace forkp {
             if (pid == 0)
                 return;
 
-            if (pid < 0)
-            {
+            if (pid < 0) {
                 BOOST_LOG_T(error) << "SIGCHLD wait error!";
                 return;
             }
@@ -60,16 +61,27 @@ namespace forkp {
                 return;
             }
 
-            BOOST_LOG_T(debug) << "respown child process... ";
+            // trim from active running list
             MasterIntance.trimWorkStatObj(pid);
+
+            if (FORKP_SIG_CMD.reopen_child || FORKP_SIG_CMD.shutdown_child){
+                MasterIntance.insertDeadWorkObj(workstat);
+                return;
+            }
+
+            // If success, will auto attached to workers_,
+            // else, will append to dead_workers_.
+            BOOST_LOG_T(debug) << "respown child process... ";
             MasterIntance.trySpawnWorkers(workstat);
         }
         else if (signo == FORKP_SIG_R(FORKP_SIG::FORKP_INFO)) {
             MasterIntance.showAllStat();
         }
-        else if (signo == FORKP_SIG_R(FORKP_SIG::SIG_SHDN_CHLD)) {
+        else if (signo == FORKP_SIG_R(FORKP_SIG::SHDN_CHLD)) {
+            FORKP_SIG_CMD.shutdown_child = 1;
         }
         else if (signo == FORKP_SIG_R(FORKP_SIG::REOP_CHLD)) {
+            FORKP_SIG_CMD.reopen_child = 1;
         }
         return;
     }

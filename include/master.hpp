@@ -74,6 +74,10 @@ public:
         return true;
     }
 
+    /**
+     * 下面三个函数都是作为友元的信号处理函数调用，
+     * 因为没有BLOCK信号，所以这些函数不能再进程上下文被调用
+     */
     WorkerStat_Ptr getWorkStatObj(pid_t pid) {
         if (workers_.find(pid) == workers_.end())
             return WorkerStat_Ptr();
@@ -85,6 +89,13 @@ public:
         if (workers_.find(pid) == workers_.end())
             return false;
         return !!workers_.erase(pid);
+    }
+
+    bool insertDeadWorkObj(const WorkerStat_Ptr& dead) {
+        if (dead_workers_.find(dead) != dead_workers_.end())
+            return false;
+        dead_workers_.insert(dead);
+        return true;
     }
 
     bool spawnWorkers( const char* name, const char* cwd,
@@ -128,6 +139,8 @@ public:
         if (!forkPrepare(workstat)) {
             BOOST_LOG_T(error) << "fork_prepare worker failed, push to dead_workers!";
             ++ workstat->restart_err_cnt;
+
+            FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
             dead_workers_.insert(workstat);
             return false;
         }
@@ -139,6 +152,8 @@ public:
         if (worker_pid < 0) {
             BOOST_LOG_T(error) << "start worker failed, push to dead_workers!";
             ++ workstat->restart_err_cnt;
+
+            FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
             dead_workers_.insert(workstat);
             return false;
         }
@@ -185,6 +200,9 @@ public:
                 BOOST_LOG_T(error) << "register notify_ failed for " << workstat->worker->notify_.read_;
         }
 
+
+        FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
+
         ++workstat->restart_cnt;
         assert(workers_.find(worker_pid) == workers_.end());
         workers_[worker_pid] = workstat;
@@ -198,8 +216,29 @@ public:
 
     	for( ; ; ) {
 
-            epollh_->traverseAndHandleEvent(200);
+            epollh_->traverseAndHandleEvent(50);
 
+            if (FORKP_SIG_CMD.terminate){
+                BOOST_LOG_T(debug) << " !!!!!!!!!!!!!!!!!!!!";
+                BOOST_LOG_T(debug) << " !!!!!!!!!!!!!!!!!!!!";
+                BOOST_LOG_T(debug) << " !!!!!!!!!!!!!!!!!!!!";
+
+                ::exit(EXIT_SUCCESS);
+            }
+
+            if (FORKP_SIG_CMD.shutdown_child) {
+
+                FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
+                if (!workers_.empty()) {
+                    shutdownAllChild();
+                } else {
+                    BOOST_LOG_T(info) << "SHUTDOWN children process finished!";
+                    FORKP_SIG_CMD.shutdown_child = false;
+                }
+            }
+
+            if (FORKP_SIG_CMD.shutdown_child) {
+            }
         }
 
     }
@@ -219,6 +258,9 @@ public:
 
     void showAllStat() {
         std::cerr << "!!!! forkp status info !!!!" << std::endl;
+
+        FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
+
         std::cerr << "!!!! active workers:" << std::endl;
         if (workers_.empty())
             std::cerr << "None" << std::endl;
@@ -230,6 +272,7 @@ public:
                 m_it->second->start_tm %
                 m_it->second->this_start_tm % m_it->second->restart_cnt << std::endl;
         }
+
         std::cerr << "!!!! dead workers:" << std::endl;
         if (dead_workers_.empty())
             std::cerr << "None" << std::endl;
@@ -244,9 +287,21 @@ public:
 
 private:
 
+    void shutdownAllChild() {
+        std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
+
+        for (m_it = workers_.cbegin(); m_it != workers_.cend(); ++m_it) {
+            BOOST_LOG_T(info) << boost::format("SHUTDOWN PROCESS: %s, pid=%lu") %
+                m_it->second->worker->proc_title_ % m_it->second->this_pid;
+            ::kill(m_it->second->this_pid, SIGKILL);
+        }
+    }
+
     bool watchDogCallback() {
         char null_read[8];
         read(watch_dog_timer_fd_, null_read, 8);
+
+        FORKP_SIG_GUARD chld_guard(FORKP_SIG::CHLD);
 
         std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
         for (m_it = workers_.cbegin(); m_it != workers_.cend(); ++m_it) {
@@ -412,6 +467,10 @@ private:
         signal_init();
 
         st_rename_process(name_);
+
+        FORKP_SIG_CMD.terminate = false;
+        FORKP_SIG_CMD.reopen_child = false;
+        FORKP_SIG_CMD.shutdown_child = false;
 
         watch_dog_timer_fd_ = setupWatchDog();
 

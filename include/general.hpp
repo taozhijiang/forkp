@@ -75,7 +75,43 @@ enum class FORKP_SIG {
     PIPE      = SIGPIPE,
 };
 
+struct forkp_sig_cmd {
+    volatile bool terminate;
+    volatile bool shutdown_child;
+    volatile bool reopen_child;
+};
+extern struct forkp_sig_cmd  FORKP_SIG_CMD;
+
 #define FORKP_SIG_R(x) (static_cast<int>(x))
+
+#define FORKP_SIG_BLOCK(x) do { \
+    sigset_t set; \
+    ::sigemptyset(&set); \
+    ::sigaddset(&set, FORKP_SIG_R(x)); \
+    ::sigprocmask(SIG_BLOCK, &set, NULL); \
+} while(0)
+
+#define FORKP_SIG_UNBLOCK(x) do { \
+    sigset_t set; \
+    ::sigemptyset(&set); \
+    ::sigaddset(&set, FORKP_SIG_R(x)); \
+    ::sigprocmask(SIG_UNBLOCK, &set, NULL); \
+} while(0)
+
+// RAII signal helper
+class FORKP_SIG_GUARD {
+public:
+    FORKP_SIG_GUARD(FORKP_SIG sig):
+    sig_(sig) {
+        FORKP_SIG_BLOCK(sig_);
+    }
+
+    ~FORKP_SIG_GUARD() {
+        FORKP_SIG_UNBLOCK(sig_);
+    }
+private:
+    FORKP_SIG sig_;
+};
 
 }
 
