@@ -119,7 +119,7 @@ public:
         }
 
         if (!prepStart()) {
-            BOOST_LOG_T(info) << "prepStart error, we abort for " << proc_title_;
+            BOOST_LOG_T(error) << "prepStart error, we abort for " << proc_title_;
             ::abort();
         }
 
@@ -134,6 +134,17 @@ private:
         // 暴露this给传统C函数使用
         p_worker = this;
 
+        sigset_t set;
+        ::sigaddset(&set, FORKP_SIG_R(FORKP_SIG::FORKP_INFO));
+        ::sigaddset(&set, FORKP_SIG_R(FORKP_SIG::SHDN_CHLD));
+        ::sigaddset(&set, FORKP_SIG_R(FORKP_SIG::REOP_CHLD));
+        ::sigaddset(&set, FORKP_SIG_R(FORKP_SIG::CHLD));
+
+        if (::sigprocmask(SIG_BLOCK, &set, NULL) == -1) {
+            BOOST_LOG_T(error) << "sigprocmask() for child process failed!";
+        }
+
+        //::signal(FORKP_SIG_R(FORKP_SIG::WATCH_DOG), SIG_IGN);
         ::signal(FORKP_SIG_R(FORKP_SIG::WATCH_DOG), workerSignalHandler);
         return true;
     }

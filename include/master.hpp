@@ -16,6 +16,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#include <sys/timerfd.h>
+
 namespace forkp {
 
 /**
@@ -195,20 +197,9 @@ public:
     void masterLoop() {
 
     	for( ; ; ) {
+
             epollh_->traverseAndHandleEvent(200);
 
-            std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
-            for (m_it = workers_.cbegin(); m_it != workers_.cend(); ++m_it) {
-                if (m_it->second->worker->type_ == WorkerType::workerProcess) {
-                    ::kill(m_it->first, FORKP_SIG_R(FORKP_SIG::WATCH_DOG) );
-                    ++ m_it->second->this_miss_cnt;
-                } else {
-                    if ( ::kill(m_it->first, 0) == -1 )
-                        ++ m_it->second->this_miss_cnt;
-                }
-            }
-
-            ::sleep(1);
         }
 
     }
@@ -252,6 +243,68 @@ public:
     }
 
 private:
+
+    bool watchDogCallback() {
+        char null_read[8];
+        read(watch_dog_timer_fd_, null_read, 8);
+
+        std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
+        for (m_it = workers_.cbegin(); m_it != workers_.cend(); ++m_it) {
+
+            if (m_it->second->this_miss_cnt > 3) {
+                BOOST_LOG_T(error) << "Maxium miss for " << m_it->second->worker->proc_title_ <<
+                    ", with pid " << m_it->second->this_pid;
+                BOOST_LOG_T(error) << "Kill it immediately!";
+
+                ::kill( m_it->first, SIGKILL );
+                continue;
+            }
+
+            if (m_it->second->worker->type_ == WorkerType::workerProcess) {
+                ::kill(m_it->first, FORKP_SIG_R(FORKP_SIG::WATCH_DOG) );
+                ++ m_it->second->this_miss_cnt;
+            } else {
+                if ( ::kill(m_it->first, 0) == -1 )
+                    ++ m_it->second->this_miss_cnt;
+                else
+                    m_it->second->this_miss_cnt = 0;
+            }
+        }
+
+        return true;
+    }
+
+    int setupWatchDog() {
+        int timerfd = -1;
+
+        struct timespec now;
+        struct itimerspec itv;
+
+        if( (timerfd = ::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK)) == -1)
+            return -1;
+
+        ::clock_gettime(CLOCK_MONOTONIC, &now);
+        memset(&itv, 0, sizeof(struct itimerspec));
+
+        // 1s的监测间隔
+        itv.it_value.tv_sec = now.tv_sec + 1;
+        itv.it_interval.tv_sec = 1;
+
+        if( timerfd_settime(timerfd, TFD_TIMER_ABSTIME, &itv, NULL) == -1){
+            close(timerfd);
+            return -1;
+        }
+
+        if ( ! epollh_->addEvent(timerfd,
+                                EPOLLIN | EPOLLERR, bind(&Master::watchDogCallback, this)) ) {
+                BOOST_LOG_T(error) << "register notify_ failed for " << timerfd;
+                close(timerfd);
+                return -1;
+        }
+
+        return timerfd;
+    }
+
     bool forkPrepare(WorkerStat_Ptr& workstat) {
         int pipefd[2];
 
@@ -339,6 +392,7 @@ private:
     }
 
 private:
+
     static void createInstance() {
         static Master master;
         master.Init();
@@ -348,7 +402,8 @@ private:
     Master():
         name_("forkp master"),
         workers_(), dead_workers_(), init_list_(),
-        epollh_(make_shared<Epoll>(128))
+        epollh_(make_shared<Epoll>(128)),
+        watch_dog_timer_fd_(-1)
     {}
 
     bool Init() {
@@ -357,6 +412,9 @@ private:
         signal_init();
 
         st_rename_process(name_);
+
+        watch_dog_timer_fd_ = setupWatchDog();
+
         return true;
     }
 
@@ -369,6 +427,7 @@ private:
     std::set<WorkerStat_Ptr>        dead_workers_;  //没有启动成功的任务
     std::vector<InitFunc> init_list_;  // container set not supportted
     shared_ptr<Epoll> epollh_;
+    int watch_dog_timer_fd_;
 };
 
 }

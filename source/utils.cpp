@@ -26,7 +26,7 @@ namespace forkp {
 
         read(src, &read_buf, 1);
         if (workstat->this_miss_cnt > 0)
-            -- workstat->this_miss_cnt;
+            workstat->this_miss_cnt = 0;
 
         return true;
     }

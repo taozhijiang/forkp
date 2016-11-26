@@ -28,6 +28,14 @@ namespace forkp {
     #define MasterIntance (forkp::Master::getInstance())
     Master* Master::master_instance_ = nullptr;
 
+    /**
+     * 虽然Master是单线程的，但是信号是异步的，在信号处理函数中操作
+     * 全局数据结构是不安全的，所以这也是Nginx使用设置标识然后主进程
+     * 轮训处理的方式的原因，因为这样可以避免某些数据结构的保护工作
+     *
+     * 默认情况下，信号处理函数调用的过程中会block掉正在处理的信号
+     */
+
     void signalHander(int signo) {
         if (signo == FORKP_SIG_R(FORKP_SIG::CHLD)) {
             int stat;
@@ -59,6 +67,10 @@ namespace forkp {
         else if (signo == FORKP_SIG_R(FORKP_SIG::FORKP_INFO)) {
             MasterIntance.showAllStat();
         }
+        else if (signo == FORKP_SIG_R(FORKP_SIG::SIG_SHDN_CHLD)) {
+        }
+        else if (signo == FORKP_SIG_R(FORKP_SIG::REOP_CHLD)) {
+        }
         return;
     }
 
@@ -76,6 +88,7 @@ namespace forkp {
         {FORKP_SIG::REOP_CHLD,  "SIG_REOP_CHLD: restart all children process", signalHander},
         {FORKP_SIG::CHLD,       "SIG_CHLD: child process terminated", signalHander},
         {FORKP_SIG::PIPE,       "SIG_PIPE: SIG_IGN", SIG_IGN},
+        {FORKP_SIG::WATCH_DOG,  "SIG_WATCH_DOG: SIG_IGN", SIG_IGN},
     };
 
     extern void signal_init() {

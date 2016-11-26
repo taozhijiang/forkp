@@ -1,6 +1,8 @@
 Debug/
 Release/
 obj/
+log/
+*.log
 forkp.vpj
 forkp.vpw
 forkp.vpwhist
