@@ -86,12 +86,12 @@ namespace forkp {
     };
 
     static std::vector<signal_t> signal_list {
-        {FORKP_SIG::FORKP_INFO, "SIG_FORKP_INFO: print info", signalHander},
-        {FORKP_SIG::SHDN_CHLD,  "SIG_SHDN_CHLD: shutdown all children process", signalHander},
-        {FORKP_SIG::REOP_CHLD,  "SIG_REOP_CHLD: restart all children process", signalHander},
-        {FORKP_SIG::CHLD,       "SIG_CHLD: child process terminated", signalHander},
-        {FORKP_SIG::PIPE,       "SIG_PIPE: SIG_IGN", SIG_IGN},
-        {FORKP_SIG::WATCH_DOG,  "SIG_WATCH_DOG: SIG_IGN", SIG_IGN},
+        {FORKP_SIG::FORKP_INFO, "SIG_FORKP_INFO: print info", signalHander },
+        {FORKP_SIG::SHDN_CHLD,  "SIG_SHDN_CHLD: shutdown all children process", signalHander },
+        {FORKP_SIG::REOP_CHLD,  "SIG_REOP_CHLD: restart all children process", signalHander },
+        {FORKP_SIG::CHLD,       "SIG_CHLD: child process terminated", signalHander },
+        {FORKP_SIG::PIPE,       "SIG_PIPE: SIG_IGN", SIG_IGN },
+        {FORKP_SIG::WATCH_DOG,  "SIG_WATCH_DOG: SIG_IGN", SIG_IGN },
     };
 
     extern void signal_init() {
@@ -102,6 +102,19 @@ namespace forkp {
         }
 
         BOOST_LOG_T(info) << "Signal Init OK!";
+        return;
+    }
+
+    extern void signal_default() {
+        std::vector<signal_t>::const_iterator cit;
+        for (cit = signal_list.cbegin(); cit != signal_list.cend(); ++cit) {
+            if (cit->signo == FORKP_SIG::PIPE) {
+                ::signal(FORKP_SIG_R(cit->signo), SIG_IGN);
+            }
+            ::signal(FORKP_SIG_R(cit->signo), SIG_DFL);
+        }
+
+        BOOST_LOG_T(info) << "Signal Default OK!";
         return;
     }
 

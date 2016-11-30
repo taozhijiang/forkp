@@ -251,13 +251,22 @@ public:
     }
 
     void showAllStat() {
+        BOOST_LOG_T(info) << "!!!! forkp status info !!!!";
         std::cerr << "!!!! forkp status info !!!!" << std::endl;
 
+        BOOST_LOG_T(info) << "!!!! active workers:" ;
         std::cerr << "!!!! active workers:" << std::endl;
-        if (workers_.empty())
-            std::cerr << "None" << std::endl;
+        if (workers_.empty()) {
+            BOOST_LOG_T(info) << "<< None >>" ;
+            std::cerr << "<< None >>" << std::endl;
+        }
         std::map<pid_t, WorkerStat_Ptr>::const_iterator m_it;
         for (m_it = workers_.cbegin(); m_it != workers_.cend(); ++m_it) {
+            BOOST_LOG_T(info) << boost::format("[%c]proc:%s, pid:%d, start_pid:%lu, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
+            % (m_it->second->worker->type_ == WorkerType::workerProcess ? 'P':'E') %
+                m_it->second->worker->proc_title_ % m_it->second->this_pid % m_it->second->start_pid %
+                m_it->second->start_tm %
+                m_it->second->this_start_tm % m_it->second->restart_cnt;
             std::cerr << boost::format("[%c]proc:%s, pid:%d, start_pid:%lu, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
             % (m_it->second->worker->type_ == WorkerType::workerProcess ? 'P':'E') %
                 m_it->second->worker->proc_title_ % m_it->second->this_pid % m_it->second->start_pid %
@@ -265,11 +274,18 @@ public:
                 m_it->second->this_start_tm % m_it->second->restart_cnt << std::endl;
         }
 
+        BOOST_LOG_T(info) << "!!!! dead workers:" ;
         std::cerr << "!!!! dead workers:" << std::endl;
-        if (dead_workers_.empty())
-            std::cerr << "None" << std::endl;
+        if (dead_workers_.empty()){
+            BOOST_LOG_T(info) << "<< None >>" << std::endl;
+            std::cerr << "<< None >>" << std::endl;
+        }
         std::set<WorkerStat_Ptr>::const_iterator s_it;
         for (s_it = dead_workers_.cbegin(); s_it != dead_workers_.cend(); ++s_it) {
+            BOOST_LOG_T(info) << boost::format("[%c]proc:%s, pid:%d, start_pid:%lu, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
+            % ((*s_it)->worker->type_ == WorkerType::workerProcess ? 'P':'E') %
+                (*s_it)->worker->proc_title_ % (*s_it)->this_pid % (*s_it)->start_pid % (*s_it)->start_tm %
+                (*s_it)->this_start_tm % (*s_it)->restart_cnt;
             std::cerr << boost::format("[%c]proc:%s, pid:%d, start_pid:%lu, start_tm:%lu, this_start_tm:%lu, restart_cnt:%lu ")
             % ((*s_it)->worker->type_ == WorkerType::workerProcess ? 'P':'E') %
                 (*s_it)->worker->proc_title_ % (*s_it)->this_pid % (*s_it)->start_pid % (*s_it)->start_tm %

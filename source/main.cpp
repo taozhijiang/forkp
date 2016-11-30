@@ -6,7 +6,6 @@
 
 void taskFu(int id) {
     for (;;){
-
         std::cerr << "Start taskFunc with: " << id << std::endl;
         ::sleep(1);
     }
@@ -27,12 +26,25 @@ int main(int argc, char* argv[])
 
     MasterIntance.userInitProc();
 
-    MasterIntance.spawnWorkers("test_proc", std::bind(taskFu, 2));
-    MasterIntance.spawnWorkers("test_proc", std::bind(taskFu, 8));
+    // MasterIntance.spawnWorkers("test_proc", std::bind(taskFu, 2));
+    // MasterIntance.spawnWorkers("test_proc", std::bind(taskFu, 8));
 
-    char *args[] = {"forkp_worker_exec_test", (char *) 0 };
-    MasterIntance.spawnWorkers("execTest", "/home/user/MacOS/BitBucket/forkp/",
-    							"/home/user/MacOS/BitBucket/forkp/test/exec_test", args);
+    char *args1[] = {"fp:airobot", (char *) 0 };
+    MasterIntance.spawnWorkers("airobot", "/home/taozj/project/airobot/",
+    							"/home/taozj/project/airobot/Debug/airobot", args1);
+
+
+    char *args2[] = {"fp:ailawd", (char *) 0 };
+    MasterIntance.spawnWorkers("ailawd", "/home/taozj/project/ailawd_c++0x/",
+    							"/home/taozj/project/ailawd_c++0x/Debug/ailawd", args2);
+
+    char *args3[] = {"fp:ai-log", (char *) 0 };
+    MasterIntance.spawnWorkers("airobot_logd", "/home/taozj/project/airobot_logd/",
+    							"/home/taozj/project/airobot_logd/Debug/airobot_logd", args3);
+
+    char *args4[] = {"fp:redis-srv", (char *) 0 };
+    MasterIntance.spawnWorkers("redis srv", "/home/taozj/project/redis-3.2.4/",
+    							"/home/taozj/project/redis-3.2.4/src/redis-server", args4);
 
 
     MasterIntance.masterLoop();

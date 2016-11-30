@@ -22,6 +22,7 @@ static Worker* p_worker = NULL;
 static void workerSignalHandler(int signo);
 
 extern bool st_rename_process(const char* name);
+extern void signal_default();
 
 enum class WorkerType {
     workerProcess = 1,
@@ -135,19 +136,20 @@ private:
         // 暴露this给传统C函数使用
         p_worker = this;
 
-        sigset_t set;
-        ::sigemptyset(&set);
-        ::sigaddset(&set, FORKP_SIG_R(FORKP_SIG::FORKP_INFO));
-        ::sigaddset(&set, FORKP_SIG_R(FORKP_SIG::SHDN_CHLD));
-        ::sigaddset(&set, FORKP_SIG_R(FORKP_SIG::REOP_CHLD));
-        ::sigaddset(&set, FORKP_SIG_R(FORKP_SIG::CHLD));
+        // reset SignalHandler
+        signal_default();
 
-        if (::sigprocmask(SIG_BLOCK, &set, NULL) == -1) {
-            BOOST_LOG_T(error) << "sigprocmask() for child process failed!";
+        // 注意，下面的调用必须谨慎，因为exec族函数会继承calling process的
+        // signal_pend和signal_mask！！！
+
+        if (type_ == WorkerType::workerProcess) {
+
+            FORKP_SIG_BLOCK(FORKP_SIG::CHLD);
+
+            //::signal(FORKP_SIG_R(FORKP_SIG::WATCH_DOG), SIG_IGN);
+            ::signal(FORKP_SIG_R(FORKP_SIG::WATCH_DOG), workerSignalHandler);
         }
 
-        //::signal(FORKP_SIG_R(FORKP_SIG::WATCH_DOG), SIG_IGN);
-        ::signal(FORKP_SIG_R(FORKP_SIG::WATCH_DOG), workerSignalHandler);
         return true;
     }
 
